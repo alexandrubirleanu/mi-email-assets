@@ -1,0 +1,56 @@
+name: Validate assets
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate PNG assets
+        shell: python
+        run: |
+          from pathlib import Path
+          import struct
+
+          assets = sorted(Path(".").glob("*.png"))
+          if not assets:
+              raise SystemExit("No PNG assets found")
+
+          errors = []
+          for path in assets:
+              data = path.read_bytes()
+              if len(data) > 250 * 1024:
+                  errors.append(f"{path}: exceeds 250 KB")
+                  continue
+              if data[:8] != b"\x89PNG\r\n\x1a\n":
+                  errors.append(f"{path}: invalid PNG signature")
+                  continue
+
+              width, height, bit_depth, color_type = struct.unpack(
+                  ">IIBB", data[16:26]
+              )
+              if (width, height) != (400, 400):
+                  errors.append(
+                      f"{path}: expected 400x400, got {width}x{height}"
+                  )
+              if bit_depth != 8:
+                  errors.append(f"{path}: expected 8-bit PNG, got {bit_depth}-bit")
+              if color_type not in (4, 6):
+                  errors.append(f"{path}: expected alpha channel")
+
+              print(
+                  f"{path}: {width}x{height}, {len(data)} bytes, "
+                  f"bit_depth={bit_depth}, color_type={color_type}"
+              )
+
+          if errors:
+              raise SystemExit("\n".join(errors))
